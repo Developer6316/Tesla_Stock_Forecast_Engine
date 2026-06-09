@@ -2,6 +2,7 @@
 """
 Tesla Stock Price Prediction using LSTM
 Predicts Tesla's opening stock price using historical data.
+Automatically downloads data from Yahoo Finance.
 """
 
 import numpy as np
@@ -14,31 +15,48 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+import yfinance as yf
 
 
 # ============================================================================
 # Configuration
 # ============================================================================
 CONFIG = {
-    "data_path": "/content/tesla_stock_data_2010_2025.csv",
+    "ticker": "TSLA",
+    "start_date": "2010-01-01",
+    "end_date": None,  # None means today
     "look_back": 60,
     "train_split": 0.75,
     "epochs": 100,
     "batch_size": 32,
     "early_stopping_patience": 50,
-    "model_save_path": "tesla_open_lstm.keras",
+    "model_save_path": "tesla_lstm_model.keras",
+    "data_save_path": "tesla_stock_data.csv",
 }
 
 
 # ============================================================================
-# Data Loading & Exploration
+# Data Download & Loading
 # ============================================================================
-def load_and_explore_data(file_path):
-    """Load CSV data and display basic information."""
-    df = pd.read_csv(file_path, parse_dates=True, index_col="Date")
-    print(f"Data shape: {df.shape}")
+def download_stock_data(ticker, start_date, end_date):
+    """Download stock data from Yahoo Finance."""
+    print(f"Downloading {ticker} stock data from {start_date} to {end_date or 'today'}...")
+    try:
+        df = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        print(f"✓ Downloaded {len(df)} trading days")
+        return df
+    except Exception as e:
+        print(f"✗ Error downloading data: {e}")
+        raise
+
+
+def load_and_explore_data(df):
+    """Display basic information about the data."""
+    print(f"\nData shape: {df.shape}")
     print(f"\nFirst few rows:\n{df.head()}")
-    print(f"\nMissing values:\n{df.isna().any()}")
+    print(f"\nData info:")
+    print(df.info())
+    print(f"\nMissing values:\n{df.isna().sum()}")
     return df
 
 
@@ -60,9 +78,10 @@ def plot_price_history(df):
     """Plot historical opening prices."""
     plt.figure(figsize=(16, 8))
     plt.plot(df.index, df["Open"], color="red", linewidth=2)
-    plt.title("Tesla Open Stock Price History", fontsize=16)
+    plt.title("Tesla (TSLA) Open Stock Price History", fontsize=16)
     plt.xlabel("Date", fontsize=14)
     plt.ylabel("Open Price (USD)", fontsize=14)
+    plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
 
@@ -71,10 +90,11 @@ def plot_price_distribution(df):
     """Plot distribution of opening prices."""
     price_counts = df["Open"].value_counts().sort_index()
     plt.figure(figsize=(12, 6))
-    plt.bar(price_counts.index, price_counts.values)
+    plt.bar(price_counts.index, price_counts.values, color="steelblue")
     plt.title("Open Share Price Distribution", fontsize=16)
     plt.xlabel("Price (USD)", fontsize=12)
     plt.ylabel("Frequency", fontsize=12)
+    plt.grid(True, alpha=0.3, axis="y")
     plt.tight_layout()
     plt.show()
 
@@ -85,6 +105,12 @@ def plot_price_distribution(df):
 def prepare_data(df, column="Open", train_split=0.75, look_back=60):
     """Normalize and split data into train/test sets."""
     data = df[[column]].values
+    
+    # Remove any NaN values
+    if np.isnan(data).any():
+        print(f"Warning: Found NaN values. Dropping them...")
+        df = df.dropna()
+        data = df[[column]].values
     
     # Normalize data
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -97,7 +123,7 @@ def prepare_data(df, column="Open", train_split=0.75, look_back=60):
     
     print(f"Train size: {len(train_data)} | Test size: {len(test_data)}")
     
-    return scaled_data, train_data, test_data, scaler
+    return df, scaled_data, train_data, test_data, scaler
 
 
 def create_sequences(data, look_back=60):
@@ -191,14 +217,15 @@ def evaluate_predictions(model, x_test, y_test, scaler):
     return predictions, y_test_actual, rmse, mae
 
 
-def plot_predictions(df, train_size, look_back, predictions):
+def plot_predictions(df, train_size, predictions):
     """Visualize predictions vs actual prices."""
     train_df = df.iloc[:train_size].copy()
     test_df = df.iloc[train_size:].copy()
+    test_df = test_df.iloc[CONFIG["look_back"]:]  # Align with predictions
     test_df["Predictions"] = predictions
     
     plt.figure(figsize=(16, 6))
-    plt.title("Tesla Stock Price Prediction (LSTM)", fontsize=16)
+    plt.title("Tesla (TSLA) Stock Price Prediction (LSTM)", fontsize=16)
     plt.xlabel("Date", fontsize=12)
     plt.ylabel("Open Price (USD)", fontsize=12)
     plt.plot(train_df["Open"], linewidth=2, label="Train", alpha=0.8)
@@ -215,34 +242,52 @@ def plot_predictions(df, train_size, look_back, predictions):
 # ============================================================================
 def main():
     """Main pipeline."""
-    print("Loading data...")
-    df = load_and_explore_data(CONFIG["data_path"])
+    print("="*60)
+    print("TESLA STOCK PRICE PREDICTION - LSTM MODEL")
+    print("="*60)
     
-    print("\nGenerating visualizations...")
+    # Download data
+    print("\n[1/8] Downloading data...")
+    df = download_stock_data(
+        CONFIG["ticker"],
+        CONFIG["start_date"],
+        CONFIG["end_date"]
+    )
+    
+    # Explore data
+    print("\n[2/8] Exploring data...")
+    df = load_and_explore_data(df)
+    
+    # Visualizations
+    print("\n[3/8] Generating visualizations...")
     plot_correlation_heatmap(df)
     plot_price_history(df)
     plot_price_distribution(df)
     
-    print("\nPreparing data...")
-    scaled_data, train_data, test_data, scaler = prepare_data(
+    # Prepare data
+    print("\n[4/8] Preparing data...")
+    df, scaled_data, train_data, test_data, scaler = prepare_data(
         df,
         column="Open",
         train_split=CONFIG["train_split"],
         look_back=CONFIG["look_back"]
     )
     
-    print("Creating sequences...")
+    # Create sequences
+    print("\n[5/8] Creating sequences...")
     x_train, y_train = create_sequences(train_data, CONFIG["look_back"])
     x_test, y_test = create_sequences(test_data, CONFIG["look_back"])
     
     print(f"x_train: {x_train.shape} | y_train: {y_train.shape}")
     print(f"x_test: {x_test.shape} | y_test: {y_test.shape}")
     
-    print("\nBuilding model...")
+    # Build model
+    print("\n[6/8] Building model...")
     model = build_model(CONFIG["look_back"])
     model.summary()
     
-    print("\nTraining model...")
+    # Train model
+    print("\n[7/8] Training model...")
     history = train_model(
         model,
         x_train,
@@ -252,21 +297,27 @@ def main():
         patience=CONFIG["early_stopping_patience"]
     )
     
-    print("\nPlotting training history...")
     plot_training_history(history)
     
-    print("\nEvaluating on test set...")
+    # Evaluate
+    print("\n[8/8] Evaluating model...")
     predictions, y_test_actual, rmse, mae = evaluate_predictions(
         model, x_test, y_test, scaler
     )
     
-    print("Visualizing predictions...")
-    train_size = int(len(df) * CONFIG["train_split"])
-    plot_predictions(df, train_size, CONFIG["look_back"], predictions)
+    plot_predictions(df, int(len(df) * CONFIG["train_split"]), predictions)
     
+    # Save model
     print(f"\nSaving model to {CONFIG['model_save_path']}...")
     model.save(CONFIG["model_save_path"])
-    print("Done!")
+    
+    # Save data
+    print(f"Saving data to {CONFIG['data_save_path']}...")
+    df.to_csv(CONFIG["data_save_path"])
+    
+    print("\n" + "="*60)
+    print("✓ PIPELINE COMPLETED SUCCESSFULLY!")
+    print("="*60)
 
 
 if __name__ == "__main__":
