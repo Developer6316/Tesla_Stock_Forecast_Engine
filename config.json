@@ -1,0 +1,65 @@
+{
+  "model": {
+    "ticker": "TSLA",
+    "start_date": "2010-01-01",
+    "end_date": null,
+    "description": "Tesla stock price prediction model"
+  },
+  "data": {
+    "look_back": 60,
+    "train_split": 0.75,
+    "test_split": 0.25,
+    "normalization": "MinMaxScaler",
+    "feature_range": [0, 1]
+  },
+  "architecture": {
+    "lstm_layers": [
+      {
+        "units": 50,
+        "return_sequences": true,
+        "activation": "relu"
+      },
+      {
+        "units": 64,
+        "return_sequences": false,
+        "activation": "relu"
+      }
+    ],
+    "dense_layers": [
+      {
+        "units": 32,
+        "activation": "relu"
+      },
+      {
+        "units": 16,
+        "activation": "relu"
+      },
+      {
+        "units": 1,
+        "activation": "linear"
+      }
+    ],
+    "optimizer": "adam",
+    "loss_function": "mse",
+    "metrics": ["mse"]
+  },
+  "training": {
+    "epochs": 100,
+    "batch_size": 32,
+    "early_stopping": {
+      "monitor": "loss",
+      "patience": 50,
+      "restore_best_weights": true
+    },
+    "verbose": 1
+  },
+  "paths": {
+    "model_save": "tesla_lstm_model.keras",
+    "data_save": "tesla_stock_data.csv",
+    "logs_directory": "logs/"
+  },
+  "evaluation": {
+    "metrics": ["RMSE", "MAE"],
+    "test_size": 0.25
+  }
+}
